@@ -5,14 +5,27 @@
 # result as a new file with _BODY_ONLY appended to the filename.
 #
 # Usage:
-#   Process specific files:   ./strip_body.sh file1.html file2.html
 #   Process all .html files in current directory:   ./strip_body.sh
+#   Process specific files:                         ./strip_body.sh file1.html file2.html
+#   Force overwrite of existing output files:       ./strip_body.sh -overwrite
+#   Force overwrite of specific files:              ./strip_body.sh -overwrite file1.html file2.html
 
-# If no arguments given, find all .html files in the current directory
-if [ $# -eq 0 ]; then
+# Check for the -overwrite flag
+overwrite=false
+args=()
+for arg in "$@"; do
+    if [ "$arg" = "-overwrite" ]; then
+        overwrite=true
+    else
+        args+=("$arg")
+    fi
+done
+
+# If no file arguments given, find all .html files in the current directory
+if [ ${#args[@]} -eq 0 ]; then
     files=(*.html)
 else
-    files=("$@")
+    files=("${args[@]}")
 fi
 
 # Check that at least one file was found
@@ -23,7 +36,7 @@ fi
 
 for file in "${files[@]}"; do
 
-    # Skip if file does not exist
+    # Skip if source file does not exist
     if [ ! -f "$file" ]; then
         echo "Skipping: $file (not found)"
         continue
@@ -34,10 +47,26 @@ for file in "${files[@]}"; do
     base="${file%.html}"
     output="${base}_BODY_ONLY.html"
 
+    # Skip if the output file already exists and -overwrite was not set
+    if [ -f "$output" ] && [ "$overwrite" = false ]; then
+        echo "Skipping: $output (already exists, use -overwrite to replace)"
+        continue
+    fi
+
     # Extract everything from the opening <body tag to the closing </body> tag.
     # The /<body/i pattern is case-insensitive and handles attributes on the body tag.
-    awk 'BEGIN{IGNORECASE=1} /<body/{found=1} found{print} /<\/body>/{found=0}' "$file" > "$output"
+    # The output is then stripped of carriage returns and newlines are collapsed into
+    # single spaces, preventing the narrow-paste issue caused by pandoc's line wrapping.
+    awk 'BEGIN{IGNORECASE=1} /<body/{found=1} found{print} /<\/body>/{found=0}' "$file" \
+        | tr -d '\r' \
+        | tr '\n' ' ' \
+        | sed 's/  */ /g' \
+        > "$output"
 
-    echo "Created: $output"
+    if [ "$overwrite" = true ]; then
+        echo "Overwritten: $output"
+    else
+        echo "Created: $output"
+    fi
 
 done
